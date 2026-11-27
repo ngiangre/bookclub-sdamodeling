@@ -37,3 +37,4 @@ website:
       target: sdamodeling_club-slides
     - 01.qmd
     - 02.qmd
+    - 03.qmd

@@ -1,0 +1,16 @@
+---
+title: "Adaptive market planning"
+---
+
+## Learning objectives
+
+1. Compare adaptive marketing planning to selling assets in chapter 2
+
+## Assets are always being sold in adaptive market planning
+
+-   Assets like stocks are sold only once across time
+    - Selling is binary (hold/sell)
+    - Time periods are _connected_
+-   Assets like baked goods are sold over time
+    - Selling is continuous (based on demand)
+    - Time periods are often _not connected_
