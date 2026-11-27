@@ -4,13 +4,25 @@ title: "Adaptive market planning"
 
 ## Learning objectives
 
-1. Compare adaptive marketing planning to selling assets in chapter 2
+1. Compare adaptive market planning to selling assets in chapter 2
+2. Explain why stochastic gradients fit adaptive market planning but not asset selling
 
-## Assets are always being sold in adaptive market planning
+## Adaptive market planning sells assets over time vs. selling once
 
 -   Assets like stocks are sold only once across time
     - Selling is binary (hold/sell)
     - Time periods are _connected_
 -   Assets like baked goods are sold over time
     - Selling is continuous (based on demand)
-    - Time periods are often _not connected_
+    - Time periods are physically _not connected_
+
+## Stochastic gradients fit adaptive market planning, not asset selling
+
+-   Market planning: continuous decision, concave objective
+    - Noisy gradient estimates converge to the optimum
+
+$$\max_x \mathbb{E}_F(x, W) = \mathbb{E}\left[p \min\{x, W\} - c x\right]$$
+
+-   Asset selling: binary terminal decision, no estimable gradient
+    - Policies must be tuned instead (PFAs)
+
