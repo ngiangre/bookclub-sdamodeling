@@ -109,7 +109,7 @@ patchwork::wrap_plots(p1, p2, nrow = 1)
 $$\max_{\textcolor{#2E86DE}{x}} \; \mathbb{E}_{\textcolor{#E67E22}{F(W)}}\Big[\textcolor{#27AE60}{p \min\{x, W\} - c x}\Big]$$
 
 ::: {.fragment}
--   [**Metric**]{style="color:#27AE60"} — expected revenue minus purchase cost over the horizon
+-   [**Metric**]{style="color:#27AE60"} — expected profit i.e. revenue minus cost over time
 :::
 
 ::: {.fragment}
@@ -136,7 +136,7 @@ $$\max_{\textcolor{#2E86DE}{x}} \; \mathbb{E}_{\textcolor{#E67E22}{F(W)}}\Big[\t
 -   Fresh pastries: each day $t$ has one demand, $W_t$
     - The $F$ distribution generates all the $W_t$ realizations
     - $F$ is cumulative: $F(w) = \text{Prob}[W \le w]$
--   $\mathbb{E}_F(x, W)$: the expected profit as a function of the decision $x$, with $W$ the random quantity
+-   $\mathbb{E}_F(x, W)$: the expected profit as a function of the decision $x$, with $W$ the unknown demand
 
 :::
 
@@ -155,19 +155,10 @@ $$\max_{\textcolor{#2E86DE}{x}} \; \mathbb{E}_{\textcolor{#E67E22}{F(W)}}\Big[\t
     - You only see the sales, not $W_t$ itself when demand exceeds stock
 :::
 
-::: {.fragment}
-4.  **Update belief about $F$** from what you observed — then repeat
-:::
-
-
-
-
 ## The derivative of the metric is the stochastic gradient
 
--   $p$ — selling price per unit
--   $x$ — quantity stocked (your decision)
--   $c$ — purchase cost per unit
--   $W$ — demand, a random draw from $F$
+-   $p$ — selling price per unit; $x$ — quantity stocked (your decision)
+-   $c$ — purchase cost per unit; $W$ — demand, a random draw from $F$
 
 $$\text{metric: } p \min\{x, W\} - c x$$
 
@@ -178,13 +169,11 @@ $$\frac{dF(x, W)}{dx} = \begin{cases} p - c & x \le W \;\text{(sold out)} \\ -c 
 ::: {.fragment}
 -   **Each period's gradient is one of two values** — $\mathbb{E}\left[\frac{dF(x, W)}{dx}\right]$ weighs them by how often each occurs:
 $$(p-c)\,\text{Prob}[x \le W] + (- c\,\text{Prob}[x > W])$$
+$$(p-c)\,\underbrace{(1 - F^W(x))}_{\text{chance of sell-out}} \;-\; c\,\underbrace{F^W(x)}_{\text{chance of leftovers}}$$
+$$(p - c) - p\, F^W(x)$$
 :::
 
-::: {.fragment}
--   **The two probabilities add to one**, so the average collapses to
-$$(p - c) - p\, F^W(x)$$
-    - Rising $x$ means stocking out less often — $F^W(x)$ grows — so the average gradient falls
-:::
+## Setting the average gradient to zero solves for the optimum
 
 ::: {.fragment}
 -   **The optimum is where the average gradient hits zero:**
@@ -192,11 +181,63 @@ $$F^W(x^*) = \frac{p - c}{p}$$
     - Stock past this point and leftovers (at cost $c$) outnumber the missed sales you would have gained
 :::
 
-## $(p-c)\,\text{Prob}[x \le W] - c\,\text{Prob}[x > W]$ is the long-run average gradient
+## The gradient is observed across periods
 
--   The probabilities are how often each gradient branch occurs across draws
-    - Used to ask: *if I kept drawing forever at this $x$*, would profit keep rising ($>0$) or falling ($<0$)?
-    - Setting it to zero finds the $x^*$ where neither — the long-run profit-maximizing stock level
+-   $(p-c)\,\text{Prob}[x \le W] - c\,\text{Prob}[x > W]$ is the long-run average gradient
+    - The probabilities are how often each gradient branch occurs across draws
+    - Positive: profit keeps rising at this $x$; negative: falling; zero: $x^*$
+
+## With $F$ unknown, each period hands you one gradient draw for free 
+
+-   With $F$ unknown, you can't set the average gradient to zero analytically — but each period hands you *one draw* of the gradient for free
+    - After each period, update $x$ in the direction the latest draw points - **the transition function**
+$$x^{n+1} = \max\left\{0,\; x^n + \alpha_n \left.\frac{dF(x, W^{n+1})}{dx}\right|_{x = x^n}\right\} \tag{3.3}$$
+
+## The stepsize decides when we can reach the optimal x
+
+::: {.fragment}
+-   $\alpha_n$ — the **stepsize**: how far to move along the latest gradient draw
+    - The real decision of the algorithm (§3.4): a *stepsize policy* $\alpha^\pi(S^n)$, not $x$ itself
+    - Harmonic rule: $\alpha^{\text{harmonic}}(S^n \mid \theta^{\text{step}}) = \frac{\theta^{\text{step}}}{\theta^{\text{step}} + n - 1}$
+:::
+
+::: {.fragment}
+-   Averaged over draws, the update tracks the average gradient — so $x^n$ converges toward $x^*$
+:::
+
+## The stepsize rule is itself a class of policies
+
+::: {.fragment}
+-   Deterministic rules are known in advance but cannot adapt to the data
+    - Harmonic (§3.6): $\alpha^{\text{harmonic}}(S^n \mid \theta^{\text{step}}) = \frac{\theta^{\text{step}}}{\theta^{\text{step}} + n - 1}$
+:::
+
+::: {.fragment}
+-   Stochastic rules react to what the search is doing
+    - Kesten's rule (3.9): shrink $\alpha_n$ whenever the gradient **switches direction** — a signal you are stepping past $x^*$; the counter joins the state, $S^n = (x^n, K^n)$
+:::
+
+## Which stepsize is best depends on what you are optimizing
+
+::: {.fragment}
+-   **Learning in the field (3.5):** cumulative reward — fast early convergence wins
+:::
+
+::: {.fragment}
+-   **Searching in a simulator (3.6):** final $x^{\pi,N}$ — pick the rule whose curve finishes highest (Fig. 3.2)
+:::
+
+## The demand behind the unknown $F$ is a Poisson with a random mean
+
+::: {.fragment}
+-   §3.5 gives $F$ a concrete form: Poisson demand with mean $\mu$
+$$f^W(w) = \frac{\mu^w e^{-\mu}}{w!}, \quad w = 0, 1, 2, \ldots$$
+:::
+
+::: {.fragment}
+-   $\mu$ unknown, with a known distribution over values: $p_{\mu_k} = \text{Prob}[\mu = \mu_k]$
+    - Two-level uncertainty — demand given $\mu$, plus a belief about $\mu$ — is what the next slide's methods learn
+:::
 
 ## The chapter handles unknowns three ways
 
