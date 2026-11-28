@@ -20,6 +20,11 @@ $highlight-font-color: #A0E9FF;
   color: $highlight-font-color;
 }
 
+/* strong inside a colored span inherits the span's color */
+.reveal .slide span > strong {
+  color: inherit;
+}
+
 .reveal .slide h3 {
   color: $highlight-font-color;
 }

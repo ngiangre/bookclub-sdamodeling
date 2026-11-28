@@ -1,28 +1,220 @@
 ---
 title: "Adaptive market planning"
+format:
+  revealjs:
+    html-math-method: katex
+    auto-stretch: false
 ---
 
 ## Learning objectives
 
 1. Compare adaptive market planning to selling assets in chapter 2
-2. Explain why stochastic gradients fit adaptive market planning but not asset selling
+2. Explain stochastic gradients use in adaptive market planning
 
 ## Adaptive market planning sells assets over time vs. selling once
 
 -   Assets like stocks are sold only once across time
     - Selling is binary (hold/sell)
-    - Time periods are _connected_
+    - Time periods are _connected_ (selling stops or continues)
 -   Assets like baked goods are sold over time
     - Selling is continuous (based on demand)
-    - Time periods are physically _not connected_
+    - Time periods are physically _not connected_ (Leftover pastries are discarded)
+    - However, the periods are _informationally_ connected and potentially captured in a belief state
 
 ## Stochastic gradients fit adaptive market planning, not asset selling
 
+::: panel-tabset
+
+### Main Difference
+
 -   Market planning: continuous decision, concave objective
-    - Noisy gradient estimates converge to the optimum
-
-$$\max_x \mathbb{E}_F(x, W) = \mathbb{E}\left[p \min\{x, W\} - c x\right]$$
-
+    - The gradient converges to the optimum under uncertainty
+    - Across periods, the task maximizes the cumulative reward
+    - A belief state of the demand links time periods
 -   Asset selling: binary terminal decision, no estimable gradient
     - Policies must be tuned instead (PFAs)
 
+### Illustration
+
+```{r}
+#| label: gradient-vs-pfa-code
+#| code-fold: true
+#| fig-width: 12
+#| fig-height: 4
+# Generates images/gradient-vs-pfa.png for slides/03.qmd
+# Run manually: source("scripts/gradient-vs-pfa.R")
+
+library(ggplot2)
+library(patchwork)
+
+p <- 5; c <- 3; EW <- 10
+xs <- seq(0.01, 30, length.out = 300)
+profit <- p * EW * (1 - exp(-xs / EW)) - c * xs
+xstar <- EW * log(p / c)
+
+p1 <- ggplot(data.frame(x = xs, y = profit), aes(x, y)) +
+  geom_line(linewidth = 1.3, color = "#27AE60") +
+  annotate("segment", x = 1, xend = 3.5, y = profit[1], yend = profit[1],
+           arrow = arrow(length = unit(0.22, "cm")), color = "gray35", linewidth = 0.9) +
+  annotate("segment", x = 25, xend = 22.5, y = profit[xs > 25][1], yend = profit[xs > 25][1],
+           arrow = arrow(length = unit(0.22, "cm")), color = "gray35", linewidth = 0.9) +
+  annotate("point", x = xstar, y = max(profit), size = 3.2, color = "#27AE60") +
+  annotate("text", x = xstar, y = max(profit), label = "Optimal x (x*)", vjust = -1, size = 5.5, fontface = "bold") +
+  annotate("text", x = 5, y = -14, label = "sold out: slope = p - c", size = 4.4, color = "#1E8449") +
+  annotate("text", x = 15, y = -23, label = "leftovers: slope = -c", size = 4.4, color = "#B03A2E") +
+  annotate("text", x = 0.5, y = -43.5, hjust = 0, parse = TRUE, size = 3.8,
+           label = "frac(d*F(x,W), dx) == { p - c ~ (x <= W) ~ ' ; ' ~ -c ~ (x > W) }") +
+  coord_cartesian(ylim = c(min(profit) - 3, max(profit) + 6)) +
+  labs(title = "Adaptive market planning (newsvendor)",
+       subtitle = "Concave in x: the gradient points uphill to the global max",
+       x = "Stock level x", y = "Expected profit") +
+  theme_minimal(base_size = 14)
+
+set.seed(20261128)
+# Chapter 2 price model (eq. 2.13): p_{t+1} = p_t + hdl_{t+1}, hdl ~ N(0, 1)
+p0 <- 100
+thetas <- seq(99, 104, length.out = 50)
+nsim <- 4000; H <- 30
+rewards <- sapply(thetas, function(theta) {
+  sims <- matrix(rnorm(nsim * H, 0, 1), nsim, H)
+  prices <- p0 + apply(sims, 1, cumsum)
+  apply(prices, 2, function(path) {
+    t <- which(path >= theta)[1]
+    if (is.na(t)) path[H] else path[t]
+  }) |> mean()
+})
+
+p2 <- ggplot(data.frame(theta = thetas, r = rewards), aes(theta, r)) +
+  geom_hline(yintercept = p0, linetype = "dashed", color = "gray50") +
+  geom_point(aes(theta, r), size = 1.4, color = "#2E86DE") +
+  geom_line(aes(theta, r), linewidth = 0.7, color = "#2E86DE") +
+  annotate("text", x = 101.5, y = p0 + 0.2, label = "simulated estimates (jagged)", size = 4.2, color = "#2E86DE") +
+  annotate("text", x = 101.5, y = p0 - 0.2, label = "true expected reward: flat at p0 — no gradient to follow", size = 4.2, color = "gray30") +
+  coord_cartesian(ylim = c(p0 - 0.35, p0 + 0.35)) +
+  labs(title = "Asset selling (PFAs)",
+       subtitle = "Reward vs. threshold: estimates are jagged, truth is flat",
+       x = "Sell threshold theta", y = "Expected sale price") +
+  theme_minimal(base_size = 14)
+
+patchwork::wrap_plots(p1, p2, nrow = 1)
+
+```
+
+:::
+
+## The objective function maps to the three components
+
+## The objective function maps to the three components
+
+$$\max_{\textcolor{#2E86DE}{x}} \; \mathbb{E}_{\textcolor{#E67E22}{F(W)}}\Big[\textcolor{#27AE60}{p \min\{x, W\} - c x}\Big]$$
+
+::: {.fragment}
+-   [**Metric**]{style="color:#27AE60"} — expected revenue minus purchase cost over the horizon
+:::
+
+::: {.fragment}
+-   [**Decision**]{style="color:#2E86DE"} — how much product to purchase each period, $x$
+:::
+
+::: {.fragment}
+-   [**Uncertainty**]{style="color:#E67E22"} — demand for the product each period, $W$
+:::
+
+## The cumulative demand distribution $F$ can be known or unknown
+
+::: {.panel-tabset}
+
+### Known $F$
+
+-   $F$ is the cumulative distribution function of the demand $W$, written $F^W(w) = \text{Prob}[W \le w]$
+-   Jet engine parts: demand is known (five parts needed)
+    - But parts may fail specifications, so the usable-parts distribution is known from engineering data
+-   With $F$ known, compute the derivative of $\mathbb{E}_F(x, W)$ with respect to $x$ directly
+
+### Unknown $F$
+
+-   Fresh pastries: each day $t$ has one demand, $W_t$
+    - The $F$ distribution generates all the $W_t$ realizations
+    - $F$ is cumulative: $F(w) = \text{Prob}[W \le w]$
+-   $\mathbb{E}_F(x, W)$: the expected profit as a function of the decision $x$, with $W$ the random quantity
+
+:::
+
+## Observations update the belief about $F$ after each period $t$
+
+::: {.fragment}
+1.  **Decide** how many pastries to stock: $x_t$
+:::
+
+::: {.fragment}
+2.  **Demand is realized:** customers show up with total demand $W_t$, a draw from $F$, but never observed directly
+:::
+
+::: {.fragment}
+3.  **Sell and earn:** you sell $\min\{x_t, W_t\}$ and earn $p \min\{x_t, W_t\} - c x_t$
+    - You only see the sales, not $W_t$ itself when demand exceeds stock
+:::
+
+::: {.fragment}
+4.  **Update belief about $F$** from what you observed — then repeat
+:::
+
+
+
+
+## The derivative of the metric is the stochastic gradient
+
+-   $p$ — selling price per unit
+-   $x$ — quantity stocked (your decision)
+-   $c$ — purchase cost per unit
+-   $W$ — demand, a random draw from $F$
+
+$$\text{metric: } p \min\{x, W\} - c x$$
+
+$$\frac{dF(x, W)}{dx} = \begin{cases} p - c & x \le W \;\text{(sold out)} \\ -c & x > W \;\text{(leftovers)} \end{cases}$$
+
+## Averaging the gradient over $F$ solves for the optimum
+
+::: {.fragment}
+-   **Each period's gradient is one of two values** — $\mathbb{E}\left[\frac{dF(x, W)}{dx}\right]$ weighs them by how often each occurs:
+$$(p-c)\,\text{Prob}[x \le W] + (- c\,\text{Prob}[x > W])$$
+:::
+
+::: {.fragment}
+-   **The two probabilities add to one**, so the average collapses to
+$$(p - c) - p\, F^W(x)$$
+    - Rising $x$ means stocking out less often — $F^W(x)$ grows — so the average gradient falls
+:::
+
+::: {.fragment}
+-   **The optimum is where the average gradient hits zero:**
+$$F^W(x^*) = \frac{p - c}{p}$$
+    - Stock past this point and leftovers (at cost $c$) outnumber the missed sales you would have gained
+:::
+
+## $(p-c)\,\text{Prob}[x \le W] - c\,\text{Prob}[x > W]$ is the long-run average gradient
+
+-   The probabilities are how often each gradient branch occurs across draws
+    - Used to ask: *if I kept drawing forever at this $x$*, would profit keep rising ($>0$) or falling ($<0$)?
+    - Setting it to zero finds the $x^*$ where neither — the long-run profit-maximizing stock level
+
+## The chapter handles unknowns three ways
+
+::: {.fragment}
+-   **Bayesian updating (§3.7):** the unknown mean $\mu$ takes one of $K$ values
+    - Start with a prior $p_0 = \text{Prob}[\mu = \mu_k]$
+    - Each observation updates the prior with Bayes' theorem (eqs. 3.11–3.13)
+    - The belief $p^n$ joins the state: $S^n = (x^n, p^n)$
+:::
+
+::: {.fragment}
+-   **Lookup table (unknown price $p$):** discretize the price $p$ into bins $p_1, \ldots, p_K$
+    - Run a separate stochastic gradient for the nearest bin $p_k$
+    - General, but too many bins means too many order quantities to learn
+:::
+
+::: {.fragment}
+-   **Parametric model (unknown price $p$):** write the policy as $x(p \mid \theta) = \theta_0 + \theta_1 p + \theta_2 p^{\theta_3}$
+    - Update the parameters $\theta$ by the chain rule instead of $x$ itself
+    - Effective when the parametric form matches reality
+:::
