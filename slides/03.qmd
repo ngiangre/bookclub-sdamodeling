@@ -10,6 +10,10 @@ format:
 
 1. Compare adaptive market planning to selling assets in chapter 2
 2. Explain stochastic gradients use in adaptive market planning
+3. Derive the newsvendor critical-fractile solution from the stochastic gradient (in *Setting the average gradient to zero solves for the optimum*)
+4. Explain stochastic gradient search (eq. 3.3) under unknown $F$
+5. Describe stepsize policies (harmonic, Kesten) and how the learning objective shapes convergence
+6. Compare the chapter's three ways of learning unknowns: Bayesian updating, lookup tables, parametric policies
 
 ## Adaptive market planning sells assets over time vs. selling once
 
@@ -167,10 +171,10 @@ $$\frac{dF(x, W)}{dx} = \begin{cases} p - c & x \le W \;\text{(sold out)} \\ -c 
 ## Averaging the gradient over $F$ solves for the optimum
 
 ::: {.fragment}
--   **Each period's gradient is one of two values** — $\mathbb{E}\left[\frac{dF(x, W)}{dx}\right]$ weighs them by how often each occurs:
+-   **Each period's gradient is a weighted average of two values:**
 $$(p-c)\,\text{Prob}[x \le W] + (- c\,\text{Prob}[x > W])$$
 $$(p-c)\,\underbrace{(1 - F^W(x))}_{\text{chance of sell-out}} \;-\; c\,\underbrace{F^W(x)}_{\text{chance of leftovers}}$$
-$$(p - c) - p\, F^W(x)$$
+-   **critical-fractile solution:** $$(p - c) - p\, F^W(x)$$
 :::
 
 ## Setting the average gradient to zero solves for the optimum
@@ -193,38 +197,106 @@ $$F^W(x^*) = \frac{p - c}{p}$$
     - After each period, update $x$ in the direction the latest draw points - **the transition function**
 $$x^{n+1} = \max\left\{0,\; x^n + \alpha_n \left.\frac{dF(x, W^{n+1})}{dx}\right|_{x = x^n}\right\} \tag{3.3}$$
 
-## The stepsize decides when we can reach the optimal x
+## The stepsize policy decides when we can reach the optimal x
 
-::: {.fragment}
--   $\alpha_n$ — the **stepsize**: how far to move along the latest gradient draw
-    - The real decision of the algorithm (§3.4): a *stepsize policy* $\alpha^\pi(S^n)$, not $x$ itself
+::: panel-tabset
+
+### Harmonic Policy
+
+-   $\alpha^\pi(S^n)$ — the **stepsize policy**: how far to move along the latest gradient draw
     - Harmonic rule: $\alpha^{\text{harmonic}}(S^n \mid \theta^{\text{step}}) = \frac{\theta^{\text{step}}}{\theta^{\text{step}} + n - 1}$
+    - Which rule is "best" depends on the objective (§3.4.5): in the field, cumulative reward (3.5) favors fast early convergence; in a simulator, the final $x^{\pi,N}$ (3.6) favors the endpoint (Fig. 3.2)
+
+### Simulation
+
+```{r}
+#| label: harmonic-stepsizes
+#| code-fold: true
+#| fig-width: 7
+#| fig-height: 3
+library(ggplot2)
+
+grid <- expand.grid(n = 1:100, theta = c(1, 10, 20, 40)) |>
+  transform(alpha = theta / (theta + n - 1))
+grid$theta <- factor(grid$theta, levels = c(40, 20, 10, 1))
+cols <- c("40" = "#D7301F", "20" = "#E67E22", "10" = "#E649B0", "1" = "#1B2A6B")
+
+ggplot(grid, aes(n, alpha, color = theta)) +
+  geom_hline(yintercept = 0.4, linewidth = 0.3) +
+  geom_line(linewidth = 0.4) +
+  geom_point(size = 1.3, shape = 16) +
+  annotate("text", x = c(72, 55, 38, 26), y = c(0.50, 0.33, 0.28, 0.1),
+           label = expression(theta == 40, theta == 20, theta == 10, theta == 1),
+           size = 4.2, fontface = 2) +
+  scale_color_manual(values = cols, guide = "none") +
+  scale_x_continuous(breaks = seq(1, 97, 4)) +
+  labs(x = "Iteration", y = "Stepsize") +
+  theme_bw()
+```
+
 :::
 
-::: {.fragment}
--   Averaged over draws, the update tracks the average gradient — so $x^n$ converges toward $x^*$
-:::
+## Kesten's rule gives a stochastic stepsize policy
 
-## The stepsize rule is itself a class of policies
+::: panel-tabset
 
-::: {.fragment}
--   Deterministic rules are known in advance but cannot adapt to the data
-    - Harmonic (§3.6): $\alpha^{\text{harmonic}}(S^n \mid \theta^{\text{step}}) = \frac{\theta^{\text{step}}}{\theta^{\text{step}} + n - 1}$
-:::
+### Kesten's Policy
 
-::: {.fragment}
--   Stochastic rules react to what the search is doing
-    - Kesten's rule (3.9): shrink $\alpha_n$ whenever the gradient **switches direction** — a signal you are stepping past $x^*$; the counter joins the state, $S^n = (x^n, K^n)$
-:::
+-   Kesten's stepsize depends on the **observed search history**
+    - Shrink $\alpha_n$ whenever the gradient **switches direction**
+$$K^{n+1} = \begin{cases} K^n + 1 & \text{if } \nabla_x F(x^n, W^{n+1})^T \nabla_x F(x^{n-1}, W^n) < 0 \\ K^n & \text{otherwise} \end{cases} \qquad \alpha^{\text{kesten}}(S^n \mid \theta^{\text{step}}) = \frac{\theta^{\text{step}}}{\theta^{\text{step}} + K^n - 1}$$
 
-## Which stepsize is best depends on what you are optimizing
+### Simulation
 
-::: {.fragment}
--   **Learning in the field (3.5):** cumulative reward — fast early convergence wins
-:::
+```{r}
+#| label: kesten-stepsizes
+#| code-fold: true
+#| fig-width: 8
+#| fig-height: 3
+# Kesten vs. harmonic on the chapter's newsvendor search (eqs. 3.3, 3.9),
+# with realized rewards — the idea behind the book's Fig. 3.2
+library(ggplot2); library(patchwork)
+set.seed(6234)
+p <- 5; c <- 3; theta <- 20; N <- 100
+W <- rpois(N, 10)
+run <- function(alpha.fn) {
+  x <- numeric(N); k <- 1; reward <- alpha <- numeric(N); gprev <- NA
+  for (n in 1:N) {
+    g <- if (x[n] <= W[n]) p - c else -c          # gradient draw (two branches)
+    alpha[n] <- alpha.fn(n, if (n > 1 && !is.na(gprev) && g * gprev < 0) k <- k + 1 else k)
+    reward[n] <- p * min(x[n], W[n]) - c * x[n]
+    if (n < N) x[n + 1] <- max(0, x[n] + alpha[n] * g)  # eq. (3.3)
+    gprev <- g
+  }
+  data.frame(n = 1:N, x = x, k = if (identical(alpha.fn, harmonic)) NA else k,
+             alpha = alpha, reward = reward)
+}
+harmonic <- function(n, k) theta / (theta + n - 1)
+kesten   <- function(n, k) theta / (theta + k - 1)
+r.kesten <- run(kesten); r.harm <- run(harmonic)
 
-::: {.fragment}
--   **Searching in a simulator (3.6):** final $x^{\pi,N}$ — pick the rule whose curve finishes highest (Fig. 3.2)
+steps <- rbind(
+  transform(r.kesten[, c("n", "alpha")], rule = "kesten"),
+  transform(r.harm[, c("n", "alpha")], rule = "harmonic"))
+rewards <- rbind(
+  transform(r.kesten[, c("n", "reward")], rule = "kesten"),
+  transform(r.harm[, c("n", "reward")], rule = "harmonic"))
+p.step <- ggplot(steps, aes(n, alpha, color = rule)) +
+  geom_step(linewidth = 1) +
+  labs(x = NULL, y = "Stepsize", color = NULL) +
+  theme_bw() + theme(legend.position = "inside", legend.position.inside = c(0.85, 0.8))
+xstar <- qpois((p - c) / p, 10)
+opt.profit <- p * (sum(sapply(0:xstar, function(w) w * dpois(w, 10))) +
+                     xstar * (1 - ppois(xstar, 10))) - c * xstar
+p.rew <- ggplot(rewards, aes(n, reward, color = rule)) +
+  geom_hline(yintercept = opt.profit, linetype = "dashed", linewidth = 0.4) +
+  geom_line(linewidth = 0.5, alpha = 0.25) +
+  geom_smooth(aes(group = rule), se = FALSE, linewidth = 0.9, method = "loess") +
+  labs(x = "Iteration", y = expression(F(x^n, W^{n+1})), color = NULL) +
+  theme_bw() + theme(legend.position = "none")
+p.step / p.rew + plot_layout(guides = "collect") & theme(legend.position = "inside")
+```
+
 :::
 
 ## The demand behind the unknown $F$ is a Poisson with a random mean
